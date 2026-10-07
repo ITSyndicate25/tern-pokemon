@@ -51,10 +51,13 @@ reloads through the block's saved state.
 
 ## How it works
 
-The scene is one `image` node (the extension's 1422×800 background) inside a
-56.25% aspect stage, with one absolutely positioned row per Pokémon over it —
+The scene is one `image` node (the extension's background art) inside a
+frame that takes the art's own ratio — beach 1422×800, forest 936×800,
+castle 1368×800 — with one absolutely positioned row per Pokémon over it —
 flex spacers place each sprite at its x — and the foreground image last, so
-feet stand behind the sand. Sprites are the extension's GIFs
+feet stand behind the sand. The frame is sized so the whole picture fits the
+pane (it letterboxes a short pane rather than spilling past the toolbar).
+Sprites are the extension's GIFs
 (`{default,shiny}_{idle,walk,walk_left}_8fps.gif`), shown at 2× their native
 size with `image-rendering: pixelated`.
 

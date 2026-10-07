@@ -71,14 +71,25 @@ local SHEET_ROWS = 18 -- under this, the picker fills the pane: the md sheet
 -- needs about 14 rows (72px top offset + head + bar + a few rows), and in a
 -- picture in picture it would otherwise collapse to its head alone.
 
--- The scene keeps its 1422x800 ratio, so its height is 56.25% of its width.
--- A pane cell is about 0.59 lines tall, so the full width fits the height
--- while cols <= lines * 3.0; past that the stage is set to whole "ch" units
--- (3.35 per line: 1.7775 x 1.91 lines per ch, rounded down) so the picture
--- letterboxes instead of spilling below the pane.
-local WIDE_LINES = 3.0
-local FIT_CH_PER_LINE = 3.35
+-- The scene keeps its 1422x800 ratio for the beach, so its height is 56.25%
+-- of its width. A pane cell is about 0.59 lines tall, so the full width fits
+-- the height while cols <= lines * 3.0; past that the stage is set to whole
+-- "ch" units (3.35 per line: 1.7775 x 1.91 lines per ch, rounded down) so
+-- the picture letterboxes instead of spilling below the pane.
+local WIDE_LINES = 1.70 -- pane lines any picture needs per column it fills
+local FIT_CH_PER_LINE = 1.88 -- ch units any picture needs per pane line
 local CELL_PER_CH = 1.12 -- pane cells per "ch", to size walking from the stage
+
+-- The extension never stretches a background: it anchors the art at its
+-- natural size and puts the feet on the art's floor line. So the frame takes
+-- each theme's own art ratio and the floors below stay art-relative; the
+-- forest art (936x800) is half a picture taller than the beach's 16:9.
+local ART_RATIO: { [string]: number } = {
+	beach = 1422 / 800,
+	forest = 936 / 800,
+	castle = 1368 / 800,
+}
+local ART_RATIO_NONE = 1422 / 800 -- the empty theme: no art to match
 
 local THEMES = { "beach", "forest", "castle", "none" }
 local THEME_SET: { [string]: boolean } = {}
@@ -369,7 +380,7 @@ local function scene(state: State, ch: number): any
 	p.min = { w = w }
 	p.max = { w = w }
 	local stage = ui.node("col", p, {
-		ui.node("col", { role = "scene-frame", key = "frame" }, children),
+		ui.node("col", { role = "scene-frame-" .. state.theme, key = "frame" }, children),
 	})
 	return ui.col({ stage })
 end
@@ -401,13 +412,14 @@ end
 
 -- The stage's width in "ch" when the pane is too short for the picture at
 -- full width; 0 means it fits, and the stage then fills the pane's width.
--- The dock takes the pane's last line.
-local function stage_ch(cx: any): number
+-- The dock takes the pane's last line, and the picture's own ratio decides
+-- how much of a line one column of it costs.
+local function stage_ch(cx: any, ratio: number): number
 	local lines = math.max(1, cx.rows - 1)
-	if cx.cols <= lines * WIDE_LINES then
+	if cx.cols <= lines * WIDE_LINES * ratio then
 		return 0
 	end
-	return math.max(6, math.floor(lines * FIT_CH_PER_LINE))
+	return math.max(6, math.floor(lines * FIT_CH_PER_LINE * ratio))
 end
 
 local function picker_layer(state: State, cx: any): any
@@ -654,7 +666,8 @@ tern.block.define("pokemon", {
 	end,
 
 	view = function(state, cx)
-		local ch = stage_ch(cx)
+		local ratio = ART_RATIO[state.theme] or ART_RATIO_NONE
+		local ch = stage_ch(cx, ratio)
 		local cells = if ch > 0 then ch / CELL_PER_CH else cx.cols
 		state.fit_px = math.max(1, cells) * PX_PER_COL
 		local view: any = { main = scene(state, ch) }

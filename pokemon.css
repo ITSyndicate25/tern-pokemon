@@ -6,10 +6,11 @@
 /* The stage carries the scene's width: with none set (the pane is tall
    enough) it fills the pane, and the view fixes it in "ch" when the pane is
    too short, so the picture letterboxes instead of spilling past the dock.
-   The frame inside keeps the picture's 1422x800 ratio (800/1422 = 56.25%),
-   so the floor percentages below land on the picture's feet. */
+   The frame inside takes each theme's own art ratio (width / height of the
+   -large art), so the floor percentages below land on the picture's feet:
+   the extension anchors its art at its natural size, never stretched. */
 .sf-main[data-surface='plugin.pokemon.pokemon'] [data-role^='stage-'],
-.sf-main[data-surface='plugin.pokemon.pokemon'] [data-role='scene-frame'] {
+.sf-main[data-surface='plugin.pokemon.pokemon'] [data-role^='scene-frame'] {
 	position: relative;
 }
 
@@ -18,9 +19,10 @@
 	margin-right: auto;
 }
 
-.sf-main[data-surface='plugin.pokemon.pokemon'] [data-role='scene-frame'] {
-	padding-bottom: 56.25%;
-}
+.sf-main[data-surface='plugin.pokemon.pokemon'] [data-role='scene-frame-beach'] { padding-bottom: 56.25%; }
+.sf-main[data-surface='plugin.pokemon.pokemon'] [data-role='scene-frame-forest'] { padding-bottom: 85.47%; }
+.sf-main[data-surface='plugin.pokemon.pokemon'] [data-role='scene-frame-castle'] { padding-bottom: 58.48%; }
+.sf-main[data-surface='plugin.pokemon.pokemon'] [data-role='scene-frame-none'] { padding-bottom: 56.25%; }
 
 /* Scene layers over the frame; mons sit between, the foreground covers their
    feet. Both scene images are pointer-transparent: their pictures would
