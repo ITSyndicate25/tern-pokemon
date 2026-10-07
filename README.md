@@ -10,23 +10,30 @@ Pokémon, and several panes can run side by side.
 
 ## Requirements
 
-- Tern with plugin image blobs (0.5.3 or newer): plugin `image` nodes draw
-  animated GIF, APNG and WebP blobs, which is what the sprites are.
+- Tern 0.5.3 or later: plugin `image` nodes draw animated GIF, APNG and
+  WebP blobs, which is what the sprites are.
 
 ## Install
 
-```sh
-tern plugin install github.com/ITSyndicate25/tern-pokemon
-```
+    tern plugin install github.com/ITSyndicate25/tern-pokemon
 
-While developing, load it from a checkout instead:
+To work from a clone instead:
 
-```sh
-git clone https://github.com/ITSyndicate25/tern-pokemon
-tern plugin link ./tern-pokemon
-```
+    git clone https://github.com/ITSyndicate25/tern-pokemon.git
+    tern plugin link tern-pokemon
 
-## Controls
+Tern reloads the daemon's plugins on install or link, and watches the
+plugin folder afterwards. Check it loaded:
+
+    tern plugin list
+    # pokemon 0.1.0 Pokémon — 1 blocks, 0 lenses  ready
+
+A package that cannot load prints a `problem` line with the reason instead.
+
+Remove it with `tern plugin unlink pokemon` after a link, or
+`tern plugin remove pokemon` after an install.
+
+## Usage
 
 | Button | Key | Does |
 | --- | --- | --- |
@@ -42,7 +49,7 @@ tern plugin link ./tern-pokemon
 Species, scene, colours and positions survive pane restarts and daemon
 reloads through the block's saved state.
 
-## How it draws
+## How it works
 
 The scene is one `image` node (the extension's 1422×800 background) inside a
 56.25% aspect stage, with one absolutely positioned row per Pokémon over it —
@@ -58,7 +65,24 @@ per-tick chance, or after 60 ticks — walk speed 3 px/tick ±30%, as in
 `PokemonSpeed.normal`. Spawning rolls shiny at 1 in 8192
 (`vscode-pokemon.shinyOdds`).
 
-## Assets and licence
+## Repository layout
+
+| Path | Contents |
+| --- | --- |
+| `plugin.toml` | Tern manifest. One block, one style sheet. |
+| `host.luau` | The block: scene view, walk tick, species picker, asset cache. |
+| `pokemon.css` | Stage, floor and sprite styles. |
+| `data/pokemon.luau` | 632 spawnable species, generated. |
+| `tools/gen-data.py` | Regenerates the species list. |
+| `LICENSE` | MIT, this repository. |
+
+## Regenerating
+
+The species list is generated from a vscode-pokemon checkout:
+
+    python tools/gen-data.py /path/to/vscode-pokemon
+
+## Assets
 
 This repository ships **no game artwork**. Sprites, backgrounds, foregrounds
 and the heart are downloaded on first use from the
@@ -66,19 +90,6 @@ and the heart are downloaded on first use from the
 kept as files in this plugin's data directory (`cache/`, under Tern's state
 directory); each pane replays them into Tern's content-addressed blob store,
 so later panes and restarts draw them with no network.
-
-`data/pokemon.luau` lists the 632 spawnable species (name, Pokédex number,
-generation, shiny and left-facing sprite availability, native size).
-Regenerate it after a vscode-pokemon update:
-
-```sh
-python tools/gen-data.py /path/to/vscode-pokemon
-```
-
-Pokémon and Pokémon character names are trademarks of Nintendo, Creatures
-Inc. and GAME FREAK inc.; the artwork is © The Pokémon Company,
-redistributed by the vscode-pokemon project for non-commercial use. The
-plugin's own code is MIT-licensed ([LICENSE](LICENSE)).
 
 ## Credits
 
@@ -89,3 +100,10 @@ plugin's own code is MIT-licensed ([LICENSE](LICENSE)).
 - [Stencil Tern](https://stencil.so/tern) — the plugin format, the pane this
   draws in, and the hooks it uses; see the
   [plugin docs](https://docs.stencil.so/tern/).
+
+## License
+
+MIT, see [LICENSE](LICENSE). Pokémon and Pokémon character names are
+trademarks of Nintendo, Creatures Inc. and GAME FREAK inc.; the artwork is
+© The Pokémon Company, redistributed by the vscode-pokemon project for
+non-commercial use.
