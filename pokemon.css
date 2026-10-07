@@ -103,6 +103,15 @@
 	background: var(--l1);
 }
 
+/* The dock paints above the picker's layer (z-index 10): Tern's own dock/hit
+   order must not decide the buttons' top pixels, and the layer's clearance
+   below is only a guard against the sheet's frame reaching into the strip —
+   var(--sf-lh) can drift from the dock's real height with the font. */
+.sf-dock[data-surface='plugin.pokemon.pokemon'] {
+	position: relative;
+	z-index: 11;
+}
+
 /* The toolbar stays one line: the layer's clearance above it assumes that
    height, and a wrapped toolbar would spill over the scene. The label gives
    up its text first. */
