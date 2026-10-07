@@ -1,34 +1,55 @@
 /* Pokémon pane: vscode-pokemon's scene, drawn with Tern view nodes.
-   Roles: stage-<theme>, scene, scene-fg, mon, sprite[-flip], heart, btn. */
+   Roles: stage-<theme>, scene-frame, scene, scene-fg, mon, sprite[-flip],
+   heart, btn. Node rules are scoped to this block's regions, so the plain
+   role names cannot reach another plugin's nodes. */
 
-/* The stage: a 1422x800 scene box scaled to the pane width (800/1422 =
-   56.25%), so the floor percentages below land on the picture's feet. */
-[data-role^='stage-'] {
+/* The stage carries the scene's width: with none set (the pane is tall
+   enough) it fills the pane, and the view fixes it in "ch" when the pane is
+   too short, so the picture letterboxes instead of spilling past the dock.
+   The frame inside keeps the picture's 1422x800 ratio (800/1422 = 56.25%),
+   so the floor percentages below land on the picture's feet. */
+.sf-main[data-surface='plugin.pokemon.pokemon'] [data-role^='stage-'],
+.sf-main[data-surface='plugin.pokemon.pokemon'] [data-role='scene-frame'] {
 	position: relative;
+}
+
+.sf-main[data-surface='plugin.pokemon.pokemon'] [data-role^='stage-'] {
+	margin-left: auto;
+	margin-right: auto;
+}
+
+.sf-main[data-surface='plugin.pokemon.pokemon'] [data-role='scene-frame'] {
 	padding-bottom: 56.25%;
 }
 
-/* Scene layers over the stage; mons sit between, foreground covers their feet.
-   Both scene images are pointer-transparent: their pictures would zoom, and
-   they cover the whole stage, so they would swallow every click on a Pokemon. */
-[data-role='scene'] {
+/* Scene layers over the frame; mons sit between, the foreground covers their
+   feet. Both scene images are pointer-transparent: their pictures would
+   zoom, and they cover the whole frame, so they would swallow every click
+   on a Pokémon. */
+.sf-main[data-surface='plugin.pokemon.pokemon'] [data-role='scene'] {
 	position: absolute;
-	inset: 0;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	left: 0;
 	z-index: 1;
 	pointer-events: none;
 }
 
-[data-role='scene-fg'] {
+.sf-main[data-surface='plugin.pokemon.pokemon'] [data-role='scene-fg'] {
 	position: absolute;
-	inset: 0;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	left: 0;
 	z-index: 3;
 	pointer-events: none;
 }
 
-/* One row per Pokemon: full width, its flex spacers place the sprite at x.
-   Only the body (the sprite's column) takes the pointer, so a click on the
-   sand elsewhere in the band does not pet the topmost Pokemon. */
-[data-role='mon'] {
+/* One row per Pokémon: the frame's width, its flex spacers place the sprite
+   at x. Only the body (the sprite's column) takes the pointer, so a click on
+   the sand elsewhere in the band does not pet the topmost Pokémon. */
+.sf-main[data-surface='plugin.pokemon.pokemon'] [data-role='mon'] {
 	position: absolute;
 	left: 0;
 	right: 0;
@@ -37,28 +58,28 @@
 }
 
 /* Floor = vscode-pokemon's calculateFloor in px / the background's height. */
-[data-role='stage-beach'] [data-role='mon'] { bottom: 15%; }
-[data-role='stage-castle'] [data-role='mon'] { bottom: 15%; }
-[data-role='stage-forest'] [data-role='mon'] { bottom: 8%; }
-[data-role='stage-none'] [data-role='mon'] { bottom: 2%; }
+.sf-main[data-surface='plugin.pokemon.pokemon'] [data-role='stage-beach'] [data-role='mon'] { bottom: 15%; }
+.sf-main[data-surface='plugin.pokemon.pokemon'] [data-role='stage-castle'] [data-role='mon'] { bottom: 15%; }
+.sf-main[data-surface='plugin.pokemon.pokemon'] [data-role='stage-forest'] [data-role='mon'] { bottom: 8%; }
+.sf-main[data-surface='plugin.pokemon.pokemon'] [data-role='stage-none'] [data-role='mon'] { bottom: 2%; }
 
 /* Sprites: game art shown as pixel art, scaled by the image node's w/h
    (native*2) — Tern scales image px with the UI font. They take the pointer
    explicitly (the mon rows above them do not), and the sprite's own click
    action pets it instead of opening the zoom viewer. */
-[data-role='sprite'],
-[data-role='sprite-flip'] {
+.sf-main[data-surface='plugin.pokemon.pokemon'] [data-role='sprite'],
+.sf-main[data-surface='plugin.pokemon.pokemon'] [data-role='sprite-flip'] {
 	image-rendering: pixelated;
 	cursor: pointer;
 	pointer-events: auto;
 }
 
-[data-role='sprite-flip'] {
+.sf-main[data-surface='plugin.pokemon.pokemon'] [data-role='sprite-flip'] {
 	transform: scaleX(-1);
 }
 
 /* Pop-in for the pet heart; the block's tick removes the node later. */
-[data-role='heart'] {
+.sf-main[data-surface='plugin.pokemon.pokemon'] [data-role='heart'] {
 	pointer-events: none;
 	animation: pk-heart 1.6s ease-out;
 }
@@ -70,14 +91,41 @@
 }
 
 /* Toolbar buttons in the dock. */
-[data-surface='plugin.pokemon.pokemon'] [data-role='btn'] {
+.sf-dock[data-surface='plugin.pokemon.pokemon'] [data-role='btn'] {
 	cursor: pointer;
 	color: var(--t3);
 	padding: 2px 5px;
 	border-radius: 5px;
 }
 
-[data-surface='plugin.pokemon.pokemon'] [data-role='btn']:hover {
+.sf-dock[data-surface='plugin.pokemon.pokemon'] [data-role='btn']:hover {
 	color: var(--t1);
 	background: var(--l1);
+}
+
+/* The toolbar stays one line: the layer's clearance above it assumes that
+   height, and a wrapped toolbar would spill over the scene. The label gives
+   up its text first. */
+.sf-dock[data-surface='plugin.pokemon.pokemon'] > .sf-row {
+	flex-wrap: nowrap;
+	overflow: hidden;
+}
+
+.sf-dock[data-surface='plugin.pokemon.pokemon'] .sf-text {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* The layer holds the picker. Two things matter here:
+   - paint order: the scene and the sprites use z-index 1-3 inside main, so
+     without a z-index of its own the layer (auto = 0) is painted under them
+     and the sheet gets covered by the background and the Pokémon;
+   - the dock: the layer's box ends above the toolbar (one line, like the
+     dock), so the picker's dim and sheet never sit over the buttons and
+     they stay clickable while the picker is open, also in a picture in
+     picture. */
+.sf-layer[data-surface='plugin.pokemon.pokemon'] {
+	z-index: 10;
+	bottom: var(--sf-lh, 1.5em);
 }

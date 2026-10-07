@@ -46,9 +46,11 @@ type State = {
 	all_shiny: boolean,
 	blobs: { [string]: string }, -- asset url -> blob id sent to this pane
 	pending: { [string]: boolean },
+	late: { [string]: string }, -- cached assets: url -> mime, sent by the tick
 	err: string?,
 	picker: Picker?,
 	stopped: boolean,
+	fit_px: number?, -- the stage's width in pane pixels, for the walk math
 }
 
 local POKEMON: { Pokemon } = require("./data/pokemon")
@@ -65,6 +67,18 @@ local MARGIN = 0.02
 local EDGE = 0.96
 local HEART_MS = 2600
 local PX_PER_COL = 8 -- rough cell width, for px speed in pane fraction terms
+local SHEET_ROWS = 18 -- under this, the picker fills the pane: the md sheet
+-- needs about 14 rows (72px top offset + head + bar + a few rows), and in a
+-- picture in picture it would otherwise collapse to its head alone.
+
+-- The scene keeps its 1422x800 ratio, so its height is 56.25% of its width.
+-- A pane cell is about 0.59 lines tall, so the full width fits the height
+-- while cols <= lines * 3.0; past that the stage is set to whole "ch" units
+-- (3.35 per line: 1.7775 x 1.91 lines per ch, rounded down) so the picture
+-- letterboxes instead of spilling below the pane.
+local WIDE_LINES = 3.0
+local FIT_CH_PER_LINE = 3.35
+local CELL_PER_CH = 1.12 -- pane cells per "ch", to size walking from the stage
 
 local THEMES = { "beach", "forest", "castle", "none" }
 local THEME_SET: { [string]: boolean } = {}
@@ -115,19 +129,29 @@ local function cache_path(url: string): string
 	return CACHE_DIR .. "/" .. url:sub(#RAW + 2):gsub("/", "_")
 end
 
+-- Reads a cached asset's bytes; nil when it is not cached.
+local function read_cached(url: string): string?
+	local ok, bytes = pcall(tern.fs.read, cache_path(url), 16 * 1024 * 1024)
+	if not ok or bytes == "" then
+		return nil
+	end
+	return bytes
+end
+
 -- Sends `url`'s bytes through the blob store once per pane, from the file
--- cache or the network; the id lands in `state.blobs` for the view.
+-- cache or the network; the id lands in `state.blobs` for the view. Cached
+-- bytes are not sent from here: a blob frame sent inside a handler is
+-- dropped by the pane (its node arrives in the same batch), while one sent
+-- from a callback — the tick, or a fetch completion — lands. So the cache
+-- read stashes the url in `state.late` and the tick sends it.
 local function ensure_blob(state: State, cx: any, url: string, mime: string)
-	if state.blobs[url] ~= nil or state.pending[url] then
+	if state.blobs[url] ~= nil or state.pending[url] or state.late[url] ~= nil then
 		return
 	end
 	state.pending[url] = true
-	local path = cache_path(url)
-	local cached, bytes = pcall(tern.fs.read, path, 16 * 1024 * 1024)
-	if cached and bytes ~= "" then
+	if read_cached(url) ~= nil then
 		state.pending[url] = nil
-		state.blobs[url] = cx:blob(bytes, mime)
-		cx:render()
+		state.late[url] = mime
 		return
 	end
 	tern.fetch(url, { timeout_ms = 20000 }, function(r)
@@ -138,7 +162,7 @@ local function ensure_blob(state: State, cx: any, url: string, mime: string)
 			cx:render()
 			return
 		end
-		pcall(tern.fs.write, path, r.body)
+		pcall(tern.fs.write, cache_path(url), r.body)
 		state.blobs[url] = cx:blob(r.body, mime)
 		state.err = nil
 		cx:render()
@@ -313,7 +337,7 @@ local function mon_row(state: State, m: Mon, i: number): any
 	})
 end
 
-local function scene(state: State): any
+local function scene(state: State, ch: number): any
 	local children: { any } = {}
 	if state.theme ~= "none" then
 		table.insert(children, ui.node("image", {
@@ -334,7 +358,20 @@ local function scene(state: State): any
 			key = "fg",
 		}))
 	end
-	return ui.col({ ui.node("col", { role = "stage-" .. state.theme, key = "stage" }, children) })
+	-- Two boxes: the stage carries the width — the picture's columns in "ch"
+	-- when the pane is too short, else the whole pane (1 = 100% of it) — and
+	-- the frame keeps the picture's 56.25% ratio off that width. The width is
+	-- set here because CSS alone cannot know how many lines the pane has.
+	-- Both bounds force it, since a flex parent would stretch or shrink it
+	-- otherwise.
+	local p: { [string]: any } = { role = "stage-" .. state.theme, key = "stage" }
+	local w: any = if ch > 0 then ch .. "ch" else 1
+	p.min = { w = w }
+	p.max = { w = w }
+	local stage = ui.node("col", p, {
+		ui.node("col", { role = "scene-frame", key = "frame" }, children),
+	})
+	return ui.col({ stage })
 end
 
 local function dock(state: State): any
@@ -362,7 +399,18 @@ local function dock(state: State): any
 	return ui.col({ ui.row(kids) })
 end
 
-local function picker_layer(state: State): any
+-- The stage's width in "ch" when the pane is too short for the picture at
+-- full width; 0 means it fits, and the stage then fills the pane's width.
+-- The dock takes the pane's last line.
+local function stage_ch(cx: any): number
+	local lines = math.max(1, cx.rows - 1)
+	if cx.cols <= lines * WIDE_LINES then
+		return 0
+	end
+	return math.max(6, math.floor(lines * FIT_CH_PER_LINE))
+end
+
+local function picker_layer(state: State, cx: any): any
 	local pk = state.picker :: Picker
 	local items: { any } = {}
 	local order: { any } = {}
@@ -377,7 +425,12 @@ local function picker_layer(state: State): any
 	return ui.col({
 		ui.node("picker", {
 			key = "picker",
-			size = "md",
+			-- md is top-centered and leaves 72px above itself; a short pane
+			-- (a picture in picture) would clip it to the head. screen fills
+			-- the pane instead, and its default preview pane would waste the
+			-- little room there is, so it is off.
+			size = if cx.rows < SHEET_ROWS then "screen" else "md",
+			preview = "none",
 			title = "Add a Pokémon",
 			noun = "Pokémon",
 			query = pk.q,
@@ -417,7 +470,20 @@ local function start_loop(state: State, cx: any)
 		end
 		local now = tern.now()
 		local changed = false
-		local width = math.max(1, cx.cols) * PX_PER_COL
+		local width = state.fit_px or math.max(1, cx.cols) * PX_PER_COL
+		-- Blob sends for cached assets: a frame sent inside a handler is
+		-- dropped, one sent from here lands (like a fetch completion).
+		if next(state.late) ~= nil then
+			local late = state.late
+			state.late = {}
+			for url, mime in late do
+				local bytes = read_cached(url)
+				if bytes ~= nil then
+					state.blobs[url] = cx:blob(bytes, mime)
+					changed = true
+				end
+			end
+		end
 		for _, m in state.mons do
 			if m.heart_until ~= 0 and now >= m.heart_until then
 				m.heart_until = 0
@@ -534,9 +600,11 @@ tern.block.define("pokemon", {
 			all_shiny = false,
 			blobs = {},
 			pending = {},
+			late = {},
 			err = nil,
 			picker = nil,
 			stopped = false,
+			fit_px = nil,
 		}
 		pcall(tern.fs.mkdir, CACHE_DIR)
 		pcall(tern.kv.set, "urls", nil) -- the pre-file-cache kv key, cleared on sight
@@ -585,11 +653,14 @@ tern.block.define("pokemon", {
 		return "Pokémon — " .. label
 	end,
 
-	view = function(state, _cx)
-		local view: any = { main = scene(state) }
+	view = function(state, cx)
+		local ch = stage_ch(cx)
+		local cells = if ch > 0 then ch / CELL_PER_CH else cx.cols
+		state.fit_px = math.max(1, cells) * PX_PER_COL
+		local view: any = { main = scene(state, ch) }
 		view.dock = dock(state)
 		if state.picker ~= nil then
-			view.layer = picker_layer(state)
+			view.layer = picker_layer(state, cx)
 		end
 		return view
 	end,
@@ -634,7 +705,12 @@ tern.block.define("pokemon", {
 					state.mons[i].heart_until = tern.now() + HEART_MS
 				end
 			elseif act == "pick" then
-				open_picker(state)
+				-- The dock sits outside the picker's layer, so its + toggles.
+				if state.picker ~= nil then
+					state.picker = nil
+				else
+					open_picker(state)
+				end
 			elseif act == "shuffle" then
 				shuffle(state, cx)
 			elseif act == "remove" then
@@ -656,6 +732,7 @@ tern.block.define("pokemon", {
 				end
 				state.blobs = {}
 				state.pending = {}
+				state.late = {}
 				ensure_scene(state, cx)
 				for _, m in state.mons do
 					load_mon(state, cx, m)
