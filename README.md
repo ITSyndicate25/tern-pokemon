@@ -75,6 +75,17 @@ Regenerate it after a vscode-pokemon update:
 python tools/gen-data.py /path/to/vscode-pokemon
 ```
 
-Pokémon and Pokémon character names are trademarks of Nintendo; the artwork
-is © The Pokémon Company, redistributed by the vscode-pokemon project for
-non-commercial use. The plugin's own code is MIT-licensed ([LICENSE](LICENSE)).
+Pokémon and Pokémon character names are trademarks of Nintendo, Creatures
+Inc. and GAME FREAK inc.; the artwork is © The Pokémon Company,
+redistributed by the vscode-pokemon project for non-commercial use. The
+plugin's own code is MIT-licensed ([LICENSE](LICENSE)).
+
+## Credits
+
+- [jakobhoeg/vscode-pokemon](https://github.com/jakobhoeg/vscode-pokemon) by
+  Jakob Hoeg — the extension this port reproduces: its sprite set,
+  backgrounds, walk/idle behaviour and shiny odds. Its code is CC0; the
+  artwork it ships is © The Pokémon Company.
+- [Stencil Tern](https://stencil.so/tern) — the plugin format, the pane this
+  draws in, and the hooks it uses; see the
+  [plugin docs](https://docs.stencil.so/tern/).
