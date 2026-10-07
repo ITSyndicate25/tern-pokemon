@@ -1,0 +1,13 @@
+schema = 1
+id = "pokemon"
+name = "Pokémon"
+version = "0.1.0"
+description = "A vscode-pokemon pane: Pokemon walk on a themed beach, forest or castle."
+icon = "sparkle"
+host = "host.luau"
+styles = ["pokemon.css"]
+
+[[blocks]]
+id = "pokemon"
+title = "Pokémon"
+icon = "sparkle"

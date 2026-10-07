@@ -1,0 +1,83 @@
+/* Pokémon pane: vscode-pokemon's scene, drawn with Tern view nodes.
+   Roles: stage-<theme>, scene, scene-fg, mon, sprite[-flip], heart, btn. */
+
+/* The stage: a 1422x800 scene box scaled to the pane width (800/1422 =
+   56.25%), so the floor percentages below land on the picture's feet. */
+[data-role^='stage-'] {
+	position: relative;
+	padding-bottom: 56.25%;
+}
+
+/* Scene layers over the stage; mons sit between, foreground covers their feet.
+   Both scene images are pointer-transparent: their pictures would zoom, and
+   they cover the whole stage, so they would swallow every click on a Pokemon. */
+[data-role='scene'] {
+	position: absolute;
+	inset: 0;
+	z-index: 1;
+	pointer-events: none;
+}
+
+[data-role='scene-fg'] {
+	position: absolute;
+	inset: 0;
+	z-index: 3;
+	pointer-events: none;
+}
+
+/* One row per Pokemon: full width, its flex spacers place the sprite at x.
+   Only the body (the sprite's column) takes the pointer, so a click on the
+   sand elsewhere in the band does not pet the topmost Pokemon. */
+[data-role='mon'] {
+	position: absolute;
+	left: 0;
+	right: 0;
+	z-index: 2;
+	pointer-events: none;
+}
+
+/* Floor = vscode-pokemon's calculateFloor in px / the background's height. */
+[data-role='stage-beach'] [data-role='mon'] { bottom: 15%; }
+[data-role='stage-castle'] [data-role='mon'] { bottom: 15%; }
+[data-role='stage-forest'] [data-role='mon'] { bottom: 8%; }
+[data-role='stage-none'] [data-role='mon'] { bottom: 2%; }
+
+/* Sprites: game art shown as pixel art, scaled by the image node's w/h
+   (native*2) — Tern scales image px with the UI font. They take the pointer
+   explicitly (the mon rows above them do not), and the sprite's own click
+   action pets it instead of opening the zoom viewer. */
+[data-role='sprite'],
+[data-role='sprite-flip'] {
+	image-rendering: pixelated;
+	cursor: pointer;
+	pointer-events: auto;
+}
+
+[data-role='sprite-flip'] {
+	transform: scaleX(-1);
+}
+
+/* Pop-in for the pet heart; the block's tick removes the node later. */
+[data-role='heart'] {
+	pointer-events: none;
+	animation: pk-heart 1.6s ease-out;
+}
+
+@keyframes pk-heart {
+	0% { transform: scale(0.3); }
+	20% { transform: scale(1.15); }
+	100% { transform: scale(1); }
+}
+
+/* Toolbar buttons in the dock. */
+[data-surface='plugin.pokemon.pokemon'] [data-role='btn'] {
+	cursor: pointer;
+	color: var(--t3);
+	padding: 2px 5px;
+	border-radius: 5px;
+}
+
+[data-surface='plugin.pokemon.pokemon'] [data-role='btn']:hover {
+	color: var(--t1);
+	background: var(--l1);
+}

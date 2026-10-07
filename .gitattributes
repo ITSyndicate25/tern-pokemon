@@ -1,0 +1,2 @@
+# Keep every text file LF in the repository and in checkouts.
+* text=auto eol=lf
