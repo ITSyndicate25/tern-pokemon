@@ -68,6 +68,14 @@ per-tick chance, or after 60 ticks — walk speed 3 px/tick ±30%, as in
 `PokemonSpeed.normal`. Spawning rolls shiny at 1 in 8192
 (`vscode-pokemon.shinyOdds`).
 
+Both sprite faces of every Pokémon are published as blobs as soon as it
+spawns, and the tick publishes them again every second (the scene art every
+ten seconds). Tern hands a blob's bytes only to the windows showing the pane
+at that moment, so a window that missed one — the pane sat in a hidden tab,
+or it was restored before its window came back — would otherwise keep the
+sprite on its "not arrived" placeholder forever; the round delivers it and
+the sprite draws.
+
 ## Repository layout
 
 | Path | Contents |

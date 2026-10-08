@@ -39,14 +39,27 @@ type Picker = {
 	matches: { Pokemon },
 }
 
+-- One asset this pane shows: its type at the blob store, the id Tern gave
+-- its bytes once the pane published them, and when it last did. `ready`
+-- means the bytes are in the file cache, so the tick may publish them;
+-- `fetching` covers the initial download. Scene art is hundreds of KiB
+-- against a sprite's one, so it re-publishes far less often.
+type Asset = {
+	mime: string,
+	id: string?, -- the blob id the view names, nil before the first publish
+	at: number, -- tick of the last publish
+	ready: boolean,
+	fetching: boolean?,
+	scene: boolean?,
+}
+
 type State = {
 	mons: { Mon },
 	theme: string, -- beach | forest | castle | none
 	day: boolean, -- light background instead of dark
 	all_shiny: boolean,
-	blobs: { [string]: string }, -- asset url -> blob id sent to this pane
-	pending: { [string]: boolean },
-	late: { [string]: string }, -- cached assets: url -> mime, sent by the tick
+	assets: { [string]: Asset }, -- asset url -> its blob bookkeeping
+	tick: number, -- ticks since the block started, for the publish rounds
 	err: string?,
 	picker: Picker?,
 	stopped: boolean,
@@ -67,6 +80,15 @@ local MARGIN = 0.02
 local EDGE = 0.96
 local HEART_MS = 2600
 local PX_PER_COL = 8 -- rough cell width, for px speed in pane fraction terms
+-- How often the tick re-publishes what the pane shows. Tern hands a blob's
+-- bytes to the windows showing the pane only at the moment it is published,
+-- and a window that missed one (the pane sat in a hidden tab, or it was
+-- restored before its window came back) never asks again: the image stays on
+-- its placeholder. So the pane publishes again on a slow round — every
+-- second for sprites, whose bytes are under 2 KiB, and every ten seconds for
+-- the scene art, which runs a few hundred KiB.
+local ASSET_TICKS = 10
+local SCENE_TICKS = 100
 local SHEET_ROWS = 18 -- under this, the picker fills the pane: the md sheet
 -- needs about 14 rows (72px top offset + head + bar + a few rows), and in a
 -- picture in picture it would otherwise collapse to its head alone.
@@ -149,24 +171,29 @@ local function read_cached(url: string): string?
 	return bytes
 end
 
--- Sends `url`'s bytes through the blob store once per pane, from the file
--- cache or the network; the id lands in `state.blobs` for the view. Cached
--- bytes are not sent from here: a blob frame sent inside a handler is
--- dropped by the pane (its node arrives in the same batch), while one sent
--- from a callback — the tick, or a fetch completion — lands. So the cache
--- read stashes the url in `state.late` and the tick sends it.
-local function ensure_blob(state: State, cx: any, url: string, mime: string)
-	if state.blobs[url] ~= nil or state.pending[url] or state.late[url] ~= nil then
+-- Registers `url` as an asset this pane shows, from the file cache or the
+-- network, and lets the tick publish it. Publishing happens in the tick, not
+-- here: a blob frame sent inside a handler is dropped by the pane (its node
+-- arrives in the same batch), while one sent from the tick lands. The bytes
+-- are stored once; the pane publishes them again on its own rounds, so a
+-- window that missed a publish receives them on a later one.
+local function ensure_blob(state: State, cx: any, url: string, mime: string, scene: boolean?)
+	local a = state.assets[url]
+	if a == nil then
+		a = { mime = mime, at = 0, ready = false, scene = scene }
+		state.assets[url] = a
+	end
+	if a.ready or a.id ~= nil or a.fetching then
 		return
 	end
-	state.pending[url] = true
+	a.fetching = true
 	if read_cached(url) ~= nil then
-		state.pending[url] = nil
-		state.late[url] = mime
+		a.fetching = nil
+		a.ready = true
 		return
 	end
 	tern.fetch(url, { timeout_ms = 20000 }, function(r)
-		state.pending[url] = nil
+		a.fetching = nil
 		if r.error ~= nil or r.status ~= 200 or r.body == "" then
 			state.err = (r.error or ("HTTP " .. tostring(r.status))) .. " · " .. basename(url)
 			cx:toast("warn", "Pokémon image fetch failed", basename(url))
@@ -174,16 +201,23 @@ local function ensure_blob(state: State, cx: any, url: string, mime: string)
 			return
 		end
 		pcall(tern.fs.write, cache_path(url), r.body)
-		state.blobs[url] = cx:blob(r.body, mime)
+		a.ready = true
 		state.err = nil
 		cx:render()
 	end)
 end
 
+-- The blob id the view names `url` by, or nil while its bytes have not been
+-- published yet (the image then shows its placeholder).
+local function blob_of(state: State, url: string): string?
+	local a = state.assets[url]
+	return if a ~= nil then a.id else nil
+end
+
 local function ensure_scene(state: State, cx: any)
 	if state.theme ~= "none" then
-		ensure_blob(state, cx, bg_url(state.theme, state.day, "background"), "image/png")
-		ensure_blob(state, cx, bg_url(state.theme, state.day, "foreground"), "image/png")
+		ensure_blob(state, cx, bg_url(state.theme, state.day, "background"), "image/png", true)
+		ensure_blob(state, cx, bg_url(state.theme, state.day, "foreground"), "image/png", true)
 	end
 	ensure_blob(state, cx, HEART_URL, "image/png")
 end
@@ -206,10 +240,15 @@ local function load_face(state: State, cx: any, m: Mon, face: string)
 	end
 end
 
+-- Both faces, so a Pokemon that starts walking already has the window's
+-- bytes for its walk sprite: publishing only at the walk's start leaves the
+-- sprite on its placeholder until the bytes land.
 local function load_mon(state: State, cx: any, m: Mon)
+	local p = BY_NAME[m.name]
 	load_face(state, cx, m, "idle")
-	if m.moving then
-		load_face(state, cx, m, desired_face(m))
+	load_face(state, cx, m, "walk")
+	if p ~= nil and p.left then
+		load_face(state, cx, m, "walk_left")
 	end
 end
 
@@ -314,7 +353,7 @@ end
 local function mon_row(state: State, m: Mon, i: number): any
 	local p = BY_NAME[m.name]
 	local face = desired_face(m)
-	local blob = state.blobs[sprite_url(p, m.shiny, face)] or state.blobs[sprite_url(p, m.shiny, "idle")]
+	local blob = blob_of(state, sprite_url(p, m.shiny, face)) or blob_of(state, sprite_url(p, m.shiny, "idle"))
 	local size = p.size * 2 -- the extension's "medium": 2x the native sprite
 	local flip = m.moving and m.dir < 0 and not p.left
 	local sprite = ui.node("image", {
@@ -330,7 +369,7 @@ local function mon_row(state: State, m: Mon, i: number): any
 	local body: { any } = {}
 	if m.heart_until > tern.now() then
 		table.insert(body, ui.node("image", {
-			blob = state.blobs[HEART_URL],
+			blob = blob_of(state, HEART_URL),
 			alt = "heart",
 			role = "heart",
 			w = 30,
@@ -352,7 +391,7 @@ local function scene(state: State, ch: number): any
 	local children: { any } = {}
 	if state.theme ~= "none" then
 		table.insert(children, ui.node("image", {
-			blob = state.blobs[bg_url(state.theme, state.day, "background")],
+			blob = blob_of(state, bg_url(state.theme, state.day, "background")),
 			alt = state.theme .. " background",
 			role = "scene",
 			key = "bg",
@@ -363,7 +402,7 @@ local function scene(state: State, ch: number): any
 	end
 	if state.theme ~= "none" then
 		table.insert(children, ui.node("image", {
-			blob = state.blobs[bg_url(state.theme, state.day, "foreground")],
+			blob = blob_of(state, bg_url(state.theme, state.day, "foreground")),
 			alt = state.theme .. " foreground",
 			role = "scene-fg",
 			key = "fg",
@@ -483,16 +522,23 @@ local function start_loop(state: State, cx: any)
 		local now = tern.now()
 		local changed = false
 		local width = state.fit_px or math.max(1, cx.cols) * PX_PER_COL
-		-- Blob sends for cached assets: a frame sent inside a handler is
-		-- dropped, one sent from here lands (like a fetch completion).
-		if next(state.late) ~= nil then
-			local late = state.late
-			state.late = {}
-			for url, mime in late do
+		state.tick += 1
+		-- Publish the assets whose bytes are in the cache: the new ones, and
+		-- what the pane already shows once their round comes due. The round
+		-- is what heals a window that missed an earlier publish — it shows
+		-- the pane only sometimes, and Tern will not hand it a blob again on
+		-- its own; the bytes then land, and Tern redraws the image that names
+		-- them.
+		for url, a in state.assets do
+			local due = a.id == nil or state.tick - a.at >= (if a.scene then SCENE_TICKS else ASSET_TICKS)
+			if due and a.ready then
 				local bytes = read_cached(url)
 				if bytes ~= nil then
-					state.blobs[url] = cx:blob(bytes, mime)
+					a.id = cx:blob(bytes, a.mime)
+					a.at = state.tick
 					changed = true
+				else
+					a.ready = false -- the cache lost it; the next ensure_blob refetches
 				end
 			end
 		end
@@ -610,9 +656,8 @@ tern.block.define("pokemon", {
 			theme = "beach",
 			day = false,
 			all_shiny = false,
-			blobs = {},
-			pending = {},
-			late = {},
+			assets = {},
+			tick = 0,
 			err = nil,
 			picker = nil,
 			stopped = false,
@@ -740,12 +785,10 @@ tern.block.define("pokemon", {
 				-- Drop the cached files this pane used, so a bad download or a
 				-- truncated write cannot stick; the panes still showing good
 				-- blobs keep them.
-				for url in state.blobs do
+				for url in state.assets do
 					pcall(tern.fs.remove, cache_path(url))
 				end
-				state.blobs = {}
-				state.pending = {}
-				state.late = {}
+				state.assets = {}
 				ensure_scene(state, cx)
 				for _, m in state.mons do
 					load_mon(state, cx, m)
